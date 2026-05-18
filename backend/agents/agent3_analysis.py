@@ -13,7 +13,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_
 def _get_gemini_model():
     import google.generativeai as genai
     genai.configure(api_key=GEMINI_API_KEY)
-    return genai.GenerativeModel("gemini-1.5-flash")
+    return genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
 
 
 def _call_gemini(prompt: str) -> dict:

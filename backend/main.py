@@ -1,6 +1,10 @@
 import os
 import logging
 import subprocess
+
+from platform_async import ensure_compatible_event_loop
+
+ensure_compatible_event_loop()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,12 +62,14 @@ from routers.crises import router as crises_router
 from routers.actions import router as actions_router
 from routers.logs import router as logs_router
 from routers.seed import router as seed_router
+from routers.adk_pipeline import router as adk_pipeline_router
 
 app.include_router(signals_router)
 app.include_router(crises_router)
 app.include_router(actions_router)
 app.include_router(logs_router)
 app.include_router(seed_router)
+app.include_router(adk_pipeline_router)
 
 
 @app.get("/")

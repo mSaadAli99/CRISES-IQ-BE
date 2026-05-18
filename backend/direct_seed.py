@@ -12,12 +12,12 @@ load_dotenv(os.path.join(backend_dir, ".env"))
 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from db.base import DATABASE_URL, _connect_args
+from db.base import DATABASE_URL
 from db.models import Crisis, SituationReport, Action, Signal, CrisisTypeEnum, SeverityEnum, CrisisStatusEnum, ActionTypeEnum, ActionStatusEnum, SourceTypeEnum, LanguageEnum
 
 async def seed():
     print(f"Connecting to database: {DATABASE_URL}")
-    engine = create_async_engine(DATABASE_URL, connect_args=_connect_args)
+    engine = create_async_engine(DATABASE_URL)
     AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with AsyncSessionLocal() as db:
