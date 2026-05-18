@@ -31,8 +31,13 @@ async def create_crisis(db: AsyncSession, data: dict) -> Crisis:
     return crisis
 
 
-async def get_crises(db: AsyncSession) -> list[Crisis]:
-    result = await db.execute(select(Crisis).order_by(Crisis.created_at.desc()))
+async def get_crises(db: AsyncSession, limit: Optional[int] = None, offset: Optional[int] = 0) -> list[Crisis]:
+    stmt = select(Crisis).order_by(Crisis.created_at.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    if offset:
+        stmt = stmt.offset(offset)
+    result = await db.execute(stmt)
     return result.scalars().all()
 
 

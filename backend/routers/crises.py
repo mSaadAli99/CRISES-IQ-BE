@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel
 from db.base import get_db
+from db.models import Signal
 from db.crud import (
     get_crises,
     get_crisis_by_id,
@@ -9,6 +11,7 @@ from db.crud import (
     get_actions_by_crisis,
     get_agent_logs_by_crisis,
     get_signals_by_ids,
+    get_stats,
 )
 from agents.agent1_ingestion import run_ingestion_agent
 from agents.agent2_detection import run_detection_agent
@@ -16,7 +19,31 @@ from agents.agent3_analysis import run_analysis_agent
 from agents.agent4_planner import run_planner_agent
 from db.crud import create_signal
 
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+
 router = APIRouter(prefix="/api", tags=["crises"])
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+manager = ConnectionManager()
 
 
 class PipelineRequest(BaseModel):
@@ -113,18 +140,53 @@ async def run_pipeline(body: PipelineRequest, db: AsyncSession = Depends(get_db)
 
     agent_logs = await get_agent_logs_by_crisis(db, crisis_data["crisis_id"])
 
-    return {
+    return_data = {
         "crisis": crisis_data,
         "situation_report": report_data,
         "actions": actions_data,
         "agent_logs": [_serialize_log(l) for l in agent_logs],
     }
+    
+    # Broadcast to all connected websocket clients
+    await manager.broadcast({"event": "new_crisis", "data": return_data})
+    
+    return return_data
 
 
 @router.get("/crises")
-async def list_crises(db: AsyncSession = Depends(get_db)):
-    crises = await get_crises(db)
+async def list_crises(
+    limit: Optional[int] = None, 
+    offset: Optional[int] = 0, 
+    db: AsyncSession = Depends(get_db)
+):
+    crises = await get_crises(db, limit=limit, offset=offset)
     return [_serialize_crisis(c) for c in crises]
+
+
+@router.websocket("/ws/crises")
+async def websocket_crises(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+
+@router.get("/dashboard/stats")
+async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
+    db_stats = await get_stats(db)
+    
+    # Simulate agents running for now (you can add a real tracker later)
+    # E.g., counting active pipelines or background workers
+    agents_running = 4 
+    
+    return {
+        "active_crises": db_stats.get("active_crises", 0),
+        "agents_running": agents_running,
+        "system_status": "stable"
+    }
 
 
 @router.get("/crises/{crisis_id}")
