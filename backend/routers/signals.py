@@ -166,20 +166,24 @@ async def ingest_signal_with_image(
     return return_data
 
 
+def _serialize_signal(s):
+    return {
+        "id": s.id,
+        "text": s.text,
+        "normalized_text": s.normalized_text,
+        "language": s.language.value if hasattr(s.language, "value") else s.language,
+        "source_type": s.source_type.value if hasattr(s.source_type, "value") else s.source_type,
+        "location": s.location,
+        "latitude": s.latitude,
+        "longitude": s.longitude,
+        "image_url": s.image_url,
+        "verification_score": s.verification_score,
+        "is_ai_generated": bool(s.is_ai_generated) if s.is_ai_generated is not None else False,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+    }
+
+
 @router.get("/signals")
 async def list_signals(db: AsyncSession = Depends(get_db)):
     signals = await get_signals(db)
-    return [
-        {
-            "id": s.id,
-            "text": s.text,
-            "normalized_text": s.normalized_text,
-            "language": s.language.value if hasattr(s.language, "value") else s.language,
-            "source_type": s.source_type.value if hasattr(s.source_type, "value") else s.source_type,
-            "location": s.location,
-            "latitude": s.latitude,
-            "longitude": s.longitude,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-        }
-        for s in signals
-    ]
+    return [_serialize_signal(s) for s in signals]

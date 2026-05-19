@@ -51,8 +51,8 @@ class PipelineRequest(BaseModel):
     location: str
 
 
-def _serialize_crisis(c):
-    return {
+def _serialize_crisis(c, *, include_social: bool = False):
+    data = {
         "id": c.id,
         "crisis_type": c.crisis_type.value if hasattr(c.crisis_type, "value") else c.crisis_type,
         "location": c.location,
@@ -64,6 +64,11 @@ def _serialize_crisis(c):
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "resolved_at": c.resolved_at.isoformat() if c.resolved_at else None,
     }
+    if include_social:
+        data["social_verification_sources"] = c.social_verification_sources or []
+        sources = c.social_verification_sources or []
+        data["social_sources_count"] = len(sources) if isinstance(sources, list) else 0
+    return data
 
 
 def _serialize_report(r):
@@ -200,7 +205,7 @@ async def get_crisis(crisis_id: int, db: AsyncSession = Depends(get_db)):
     logs = await get_agent_logs_by_crisis(db, crisis_id)
 
     return {
-        **_serialize_crisis(crisis),
+        **_serialize_crisis(crisis, include_social=True),
         "situation_report": _serialize_report(report),
         "actions": [_serialize_action(a) for a in actions],
         "agent_logs": [_serialize_log(l) for l in logs],

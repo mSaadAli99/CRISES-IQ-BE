@@ -76,12 +76,36 @@ Rules:
         result = _call_gemini(prompt)
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
+        err_str = str(e)
+        is_quota = (
+            "429" in err_str
+            or "quota" in err_str.lower()
+            or "ResourceExhausted" in err_str
+        )
+        if is_quota:
+            logger.warning("Agent1 quota exceeded — using passthrough fallback: %s", err_str[:200])
+            output_data = {
+                "normalized_text": text,
+                "language": "en",
+                "location": location,
+                "source_type": source_type,
+            }
+            await create_agent_log(db, {
+                "crisis_id": crisis_id,
+                "agent_number": 1,
+                "agent_name": "Signal Ingestion Agent",
+                "input_data": input_data,
+                "output_data": output_data,
+                "reasoning": "Gemini quota exceeded; stored raw signal without LLM normalization.",
+                "duration_ms": duration_ms,
+            })
+            return output_data
         await create_agent_log(db, {
             "crisis_id": crisis_id,
             "agent_number": 1,
             "agent_name": "Signal Ingestion Agent",
             "input_data": input_data,
-            "output_data": {"error": str(e)},
+            "output_data": {"error": err_str},
             "reasoning": "Failed to process signal",
             "duration_ms": duration_ms,
         })
