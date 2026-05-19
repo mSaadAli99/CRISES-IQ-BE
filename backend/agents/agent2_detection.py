@@ -66,6 +66,27 @@ def _call_grounded_gemini(prompt: str) -> dict:
             raise
 
 
+def safe_parse_confidence(val) -> float:
+    if val is None:
+        return 0.5
+    try:
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val).strip().lower()
+        if "%" in s:
+            s = s.replace("%", "").strip()
+            return float(s) / 100.0
+        if s in ("critical", "high", "active"):
+            return 0.85
+        if s in ("medium", "average"):
+            return 0.50
+        if s in ("low", "minimal"):
+            return 0.20
+        return float(s)
+    except Exception:
+        return 0.50
+
+
 def get_mock_social_posts(crisis_type: str, area: str) -> list[dict]:
     import random
     templates = {
@@ -197,9 +218,7 @@ Rules:
     if not social_sources:
         logger.info("No live search matches found. Generating high-fidelity mock Karachi social feed.")
         social_sources = get_mock_social_posts(c_type, c_loc)
-    
-    # Scale confidence score based on signal count & source types
-    raw_conf = float(result.get("confidence_score", 0.5))
+    raw_conf = safe_parse_confidence(result.get("confidence_score", 0.5))
     has_form = any(s.get("source_type") == "form" for s in signals)
     has_verified_proof = any(s.get("verification_score") is not None and s.get("verification_score") > 0.6 for s in signals)
     is_ai = any(s.get("is_ai_generated") is True for s in signals)
