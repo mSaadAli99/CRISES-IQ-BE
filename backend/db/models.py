@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, Text, DateTime, ForeignKey,
+    Column, Integer, String, Float, Text, DateTime, ForeignKey, Boolean,
     Enum as SAEnum, JSON, func
 )
 from .base import Base
@@ -63,6 +63,10 @@ class Signal(Base):
     location = Column(String(255), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    image_url = Column(String(500), nullable=True)
+    verification_score = Column(Float, nullable=True)
+    is_ai_generated = Column(Boolean, default=False, nullable=True)
+    forensic_log = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -77,6 +81,7 @@ class Crisis(Base):
     confidence_score = Column(Float, nullable=False)
     severity = Column(SAEnum(SeverityEnum), nullable=False)
     status = Column(SAEnum(CrisisStatusEnum), default=CrisisStatusEnum.active, nullable=False)
+    social_verification_sources = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
 

@@ -57,6 +57,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 from routers.signals import router as signals_router
 from routers.crises import router as crises_router
 from routers.actions import router as actions_router

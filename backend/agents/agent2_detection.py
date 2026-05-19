@@ -37,6 +37,45 @@ def _call_gemini(prompt: str) -> dict:
             raise
 
 
+def get_mock_social_posts(crisis_type: str, area: str) -> list[dict]:
+    import random
+    templates = {
+        "flood": [
+            f"Avoid {area} right now, water level is rising rapidly! #KarachiRain",
+            f"Stuck near {area} for 40 mins due to massive urban flooding.",
+            f"Alert: severe waterlogging reported at main crossroads in {area}."
+        ],
+        "accident": [
+            f"Bad vehicle collision near {area}. Traffic is backlogged.",
+            f"Rescue ambulance dispatched to major road accident on {area} road.",
+            f"Drive carefully near {area}, traffic police clearing a crash scene."
+        ],
+        "road_block": [
+            f"Local protest blocks the highway near {area}. Heavy delays.",
+            f"Avoid transit through {area}. Road is closed for sewerage repairs.",
+            f"Security barricades placed around central {area} access points."
+        ],
+        "heatwave": [
+            f"Extremely high temperature today in {area}! Stay hydrated. #KarachiHeatwave",
+            f"AC failures and high humidity reports coming from several markets in {area}.",
+            f"Local clinics setting up relief camps in {area} for heat exhaustion."
+        ]
+    }
+    c_type = crisis_type.lower()
+    posts = templates.get(c_type, [f"Unusual activity and delays reported near {area}."])
+    count = random.randint(1, len(posts))
+    selected = random.sample(posts, count)
+    return [
+        {
+            "username": f"karachi_citizen_{random.randint(100,999)}",
+            "text": text,
+            "timestamp": "Just now",
+            "platform": "Twitter/X"
+        }
+        for text in selected
+    ]
+
+
 async def run_detection_agent(
     db: AsyncSession,
     signals: list[dict],
@@ -94,14 +133,36 @@ Rules:
         })
         raise
 
+    c_type = result.get("crisis_type", "accident")
+    c_loc = result.get("location", location)
+    
+    # Generate mock cross-verification social sources
+    social_sources = get_mock_social_posts(c_type, c_loc)
+    
+    # Scale confidence score based on signal count & source types
+    raw_conf = float(result.get("confidence_score", 0.5))
+    has_form = any(s.get("source_type") == "form" for s in signals)
+    has_verified_proof = any(s.get("verification_score") is not None and s.get("verification_score") > 0.6 for s in signals)
+    is_ai = any(s.get("is_ai_generated") is True for s in signals)
+    
+    if is_ai:
+        scaled_conf = 0.10 # Heavily demote simulated/AI photos
+    elif has_verified_proof:
+        scaled_conf = min(0.98, raw_conf + 0.15) # Boost for verified image proof
+    elif len(signals) > 1:
+        scaled_conf = min(0.95, raw_conf + 0.05) # Boost for multi-source
+    else:
+        scaled_conf = max(0.30, raw_conf - 0.10) # Lower for single-source report without proof
+
     crisis = await create_crisis(db, {
-        "crisis_type": result.get("crisis_type", "accident"),
-        "location": result.get("location", location),
+        "crisis_type": c_type,
+        "location": c_loc,
         "latitude": result.get("latitude"),
         "longitude": result.get("longitude"),
-        "confidence_score": float(result.get("confidence_score", 0.5)),
+        "confidence_score": round(scaled_conf, 2),
         "severity": result.get("severity", "medium"),
         "status": "active",
+        "social_verification_sources": social_sources
     })
 
     duration_ms = int((time.time() - start_time) * 1000)
@@ -114,6 +175,7 @@ Rules:
         "confidence_score": crisis.confidence_score,
         "severity": crisis.severity.value if hasattr(crisis.severity, 'value') else crisis.severity,
         "status": crisis.status.value if hasattr(crisis.status, 'value') else crisis.status,
+        "social_sources_count": len(social_sources)
     }
 
     await create_agent_log(db, {
@@ -122,7 +184,7 @@ Rules:
         "agent_name": "Crisis Detection Agent",
         "input_data": input_data,
         "output_data": output_data,
-        "reasoning": result.get("reasoning", ""),
+        "reasoning": f"{result.get('reasoning', '')} | Ingested photo proof status: {has_verified_proof}. Disinformation check: {is_ai}.",
         "duration_ms": duration_ms,
     })
 
