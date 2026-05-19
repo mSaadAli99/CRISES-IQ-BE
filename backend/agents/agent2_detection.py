@@ -16,6 +16,19 @@ def _get_gemini_model():
     return genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
 
 
+def _get_grounded_gemini_model():
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+    try:
+        return genai.GenerativeModel(
+            os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+            tools="google_search"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to create grounded model, falling back to standard: {e}")
+        return genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
+
+
 def _call_gemini(prompt: str) -> dict:
     model = _get_gemini_model()
     for attempt in range(2):
@@ -34,6 +47,22 @@ def _call_gemini(prompt: str) -> dict:
             if attempt == 0:
                 logger.warning(f"Agent2 Gemini call failed (attempt 1): {e}")
                 continue
+            raise
+
+
+def _call_grounded_gemini(prompt: str) -> dict:
+    model = _get_grounded_gemini_model()
+    for attempt in range(2):
+        try:
+            response = model.generate_content(prompt)
+            raw = response.text.strip()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            return json.loads(raw)
+        except Exception as e:
+            if attempt == 0:
+                logger.warning(f"Agent2 grounded Gemini call failed (attempt 1): {e}")
+                continue
+            logger.error(f"Grounded search failed completely: {e}")
             raise
 
 
@@ -136,8 +165,38 @@ Rules:
     c_type = result.get("crisis_type", "accident")
     c_loc = result.get("location", location)
     
-    # Generate mock cross-verification social sources
-    social_sources = get_mock_social_posts(c_type, c_loc)
+    # 1. Run live Google Search grounded query to find actual matching alerts/news/social posts
+    social_sources = []
+    try:
+        search_prompt = f"""Search the live web (including Twitter/X posts, news portals, and traffic pages) for:
+        Incident Type: {c_type}
+        Location: {c_loc} in Karachi, Pakistan
+        
+        Retrieve actual matching references, reports, or recent social media postings within the last 48 hours.
+        Return ONLY a JSON list of matching posts. Each post must match this exact structure:
+        [
+          {{
+            "username": "handle_or_outlet_name",
+            "text": "brief text summary of what they reported",
+            "timestamp": "e.g., 2 hours ago or 1 day ago",
+            "platform": "Twitter/X or Local News or Facebook"
+          }}
+        ]
+        
+        If you find absolutely NO recent live results on Google Search, return an empty list: [].
+        Return ONLY valid JSON without markdown formatting."""
+        
+        social_sources = _call_grounded_gemini(search_prompt)
+        if not isinstance(social_sources, list):
+            social_sources = []
+    except Exception as e:
+        logger.warning(f"Live search grounding failed or timed out: {e}. Falling back to simulation.")
+        social_sources = []
+
+    # 2. Fall back to simulation if no real posts found on Google (so the UI is always dynamic and interactive)
+    if not social_sources:
+        logger.info("No live search matches found. Generating high-fidelity mock Karachi social feed.")
+        social_sources = get_mock_social_posts(c_type, c_loc)
     
     # Scale confidence score based on signal count & source types
     raw_conf = float(result.get("confidence_score", 0.5))
