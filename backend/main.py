@@ -59,6 +59,7 @@ app.add_middleware(
 
 from fastapi.staticfiles import StaticFiles
 
+os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 from routers.signals import router as signals_router
