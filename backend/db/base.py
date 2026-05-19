@@ -13,26 +13,23 @@ if not _raw_url:
 
 
 def _to_async_db_url(url: str) -> str:
-    """Convert any postgres URL to SQLAlchemy async asyncpg format and clean unsupported query params."""
+    """Convert any postgres URL to SQLAlchemy async psycopg3 format and clean unsupported query params."""
     if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        url = url.replace("postgres://", "postgresql+psycopg://", 1)
     elif url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    elif url.startswith("postgresql+psycopg://"):
-        url = url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
-        
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+    elif url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+
     parsed = urlparse(url)
     if parsed.query:
         from urllib.parse import parse_qsl, urlencode
         query_params = dict(parse_qsl(parsed.query))
         cleaned_params = {}
         for k, v in query_params.items():
-            if k == "sslmode":
-                cleaned_params["ssl"] = "require"
-            elif k == "channel_binding":
+            if k == "channel_binding":
                 continue
-            else:
-                cleaned_params[k] = v
+            cleaned_params[k] = v
         new_query = urlencode(cleaned_params)
         parsed = parsed._replace(query=new_query)
         url = urlunparse(parsed)
@@ -45,6 +42,8 @@ def _to_sync_url(url: str) -> str:
         return url.replace("postgres://", "postgresql+psycopg://", 1)
     if url.startswith("postgresql+asyncpg://"):
         return url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql+psycopg://"):
+        return url
     if url.startswith("postgresql://") and "+psycopg" not in url:
         return url.replace("postgresql://", "postgresql+psycopg://", 1)
     return url

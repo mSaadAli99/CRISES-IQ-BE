@@ -32,6 +32,15 @@ python scripts\verify_setup.py
 uvicorn main:app --reload --port 8000
 ```
 
+## Deploy on Railway
+
+1. **Root Directory:** `backend` (repo root only has `backend/` + `.gitignore`).
+2. **Start command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
+3. **Variables:** `NEON_DATABASE_URL`, `GEMINI_API_KEY` (and optional `GEMINI_MODEL`, `CRISISIQ_ADK_MODE`).
+4. **Networking:** Generate a public domain so the frontend can reach the API.
+
+The app uses **psycopg3** (`postgresql+psycopg://`) for async Postgres — `asyncpg` is not required and must not be used unless you add it to `requirements.txt`.
+
 ## ADK endpoints
 
 | Endpoint | Description |
