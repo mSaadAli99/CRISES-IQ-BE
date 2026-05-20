@@ -51,29 +51,55 @@ async def run_forensic_agent(
         "data": img_bytes
     }
 
-    prompt = f"""You are a digital forensics and AI image synthesis analysis agent for CrisisIQ.
-    
-    Analyze the attached proof photograph along with this metadata:
-    - User reported text: "{report_text}"
-    - Reported location context: {reported_location} (Karachi, Pakistan)
-    
-    Verify the following two aspects carefully:
-    1. **Context Compatibility:** Does the image accurately portray the reported incident (e.g. flooded roads, car crash, traffic block, power outages, fire, accident)?
-       CRITICAL RULES:
-       - If the image is a selfie of a person, a portrait of a person, a face, or completely unrelated to a crisis/emergency, you MUST set "is_context_match" to false and "authenticity_score" to 0.0.
-       - Do not be fooled by user claims. Look closely at the image content. If it doesn't show the physical incident, it is a mismatch.
-    2. **AI Synthesis Detection:** Check if the image displays structural inconsistencies typical of generative AI (e.g. melted text, unnatural shadow angles, physically impossible line/geometry blending, distorted anatomy, or typical airbrushed texture signatures).
-    
-    Return ONLY a valid JSON object matching this structure (no markdown, no backticks, no extra wrapper):
-    {{
-      "is_context_match": false,
-      "context_match_reasoning": "Reasoning about why the image does not match the reported incident (e.g., 'The image is a selfie of a person and does not depict a vehicle collision')",
-      "ai_generation_probability": 0.05,
-      "is_likely_ai_generated": false,
-      "forensic_markers_found": ["selfie_detected", "no_matching_crisis_context"],
-      "authenticity_score": 0.0
-    }}
-    """
+    prompt = f"""You are a strict digital forensics and image verification agent for CrisisIQ, a crisis response system.
+
+Your job is to determine TWO things about the attached photograph:
+
+────────────────────────────────────────────
+TASK 1 — CONTEXT MATCH (most important)
+────────────────────────────────────────────
+The user claims: "{report_text}"
+Location context: {reported_location} (Karachi, Pakistan)
+
+Does this image ACTUALLY SHOW evidence of the reported crisis?
+
+BE EXTREMELY STRICT. Ask yourself:
+- Does the image show an actual emergency scene (flood, accident, fire, road blockage, etc.)?
+- Or is it just a selfie, portrait, random photo, food, meme, screenshot, or unrelated image?
+- A photo of a person's face / selfie is NEVER valid proof of any crisis.
+- A photo of a normal street, building, or room is NOT proof of a crisis.
+- The image must show VISIBLE, CLEAR evidence of the specific crisis type being reported.
+
+If the image does not clearly depict the reported crisis, set is_context_match to FALSE.
+
+────────────────────────────────────────────
+TASK 2 — AI GENERATION DETECTION
+────────────────────────────────────────────
+Check for AI-generated image markers:
+- Warped text, melted fingers, impossible geometry
+- Unnatural lighting/shadows, airbrushed textures
+- Inconsistent perspective or physically impossible scenes
+
+────────────────────────────────────────────
+SCORING RULES
+────────────────────────────────────────────
+authenticity_score combines BOTH tasks:
+- If image is a selfie/portrait/unrelated → authenticity_score must be 0.05 to 0.15
+- If image is related but unclear/ambiguous → authenticity_score 0.20 to 0.40
+- If image shows the crisis but may be AI-generated → authenticity_score 0.15 to 0.30
+- If image clearly shows real evidence of the reported crisis → authenticity_score 0.70 to 0.95
+- NEVER give authenticity_score above 0.40 if is_context_match is false
+
+Return ONLY a valid JSON object (no markdown, no backticks):
+{{
+  "is_context_match": false,
+  "context_match_reasoning": "This is a selfie/portrait photo showing a person's face. It contains zero evidence of the reported crisis.",
+  "ai_generation_probability": 0.05,
+  "is_likely_ai_generated": false,
+  "forensic_markers_found": ["human face", "no crisis evidence visible"],
+  "authenticity_score": 0.10
+}}
+"""
 
     input_data = {
         "image_path": image_path,
@@ -87,17 +113,31 @@ async def run_forensic_agent(
         raw = response.text.strip()
         raw = raw.replace("```json", "").replace("```", "").strip()
         result = json.loads(raw)
+        
+        # Enforce scoring consistency: if not context match, cap authenticity
+        if not result.get("is_context_match", False):
+            result["authenticity_score"] = min(
+                result.get("authenticity_score", 0.1), 0.20
+            )
+            logger.info(
+                "Forensic agent: image does NOT match reported crisis. "
+                "Capped authenticity_score to %.2f. Reason: %s",
+                result["authenticity_score"],
+                result.get("context_match_reasoning", "N/A")
+            )
+        
     except Exception as e:
         logger.error(f"Multimodal forensic agent failed: {e}")
         duration_ms = int((time.time() - start_time) * 1000)
         
+        # On error, default to NOT trusting the image
         err_res = {
-            "is_context_match": True,  # Fallback to true if LLM error
-            "context_match_reasoning": f"Forensic lookup bypass (Service Error: {str(e)}).",
+            "is_context_match": False,
+            "context_match_reasoning": f"Forensic analysis failed (Service Error: {str(e)}). Defaulting to unverified.",
             "ai_generation_probability": 0.0,
             "is_likely_ai_generated": False,
-            "forensic_markers_found": ["bypass_due_to_error"],
-            "authenticity_score": 0.70
+            "forensic_markers_found": ["analysis_failed"],
+            "authenticity_score": 0.15
         }
         
         await create_agent_log(db, {

@@ -27,9 +27,9 @@ from agents.agent3_analysis import run_analysis_agent
 from agents.agent4_planner import run_planner_agent
 from db.crud import get_agent_logs_by_crisis
 from routers.crises import manager, _serialize_log
-from uploads_config import UPLOAD_DIR, UPLOAD_URL_PREFIX
 
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/ingest")
 async def ingest_signal(body: IngestRequest, db: AsyncSession = Depends(get_db)):
@@ -88,7 +88,7 @@ async def ingest_signal_with_image(
             shutil.copyfileobj(image.file, buffer)
         
         # Public URL path
-        image_url = f"{UPLOAD_URL_PREFIX}/{file_name}"
+        image_url = f"/uploads/{file_name}"
         
         # 2. Run Multimodal Forensic Agent
         forensic_res = await run_forensic_agent(
@@ -98,13 +98,9 @@ async def ingest_signal_with_image(
             reported_location=location
         )
         
-        is_context_match = forensic_res.get("is_context_match", True)
-        if not is_context_match:
-            verification_score = 0.0
-        else:
-            verification_score = forensic_res.get("authenticity_score", 0.70)
-            
+        verification_score = forensic_res.get("authenticity_score", 0.70)
         is_ai_generated = forensic_res.get("is_likely_ai_generated", False)
+        is_context_match = forensic_res.get("is_context_match", False)
         forensic_log = forensic_res
 
     # 3. Run Signal Ingestion & Translation Agent
@@ -142,7 +138,7 @@ async def ingest_signal_with_image(
         "image_url": signal.image_url,
         "verification_score": signal.verification_score,
         "is_ai_generated": signal.is_ai_generated,
-        "is_context_match": forensic_log.get("is_context_match", True) if forensic_log else True
+        "is_context_match": is_context_match
     }
 
     # 5. Automatically trigger downstream multi-agent pipeline

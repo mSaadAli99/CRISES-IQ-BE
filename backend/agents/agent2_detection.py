@@ -1,10 +1,69 @@
+import os
+import json
 import time
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.crud import create_agent_log, create_crisis
-from llm_config import call_gemini_json, use_vertex_ai
 
 logger = logging.getLogger(__name__)
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+
+
+def _get_gemini_model():
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+    return genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
+
+
+def _get_grounded_gemini_model():
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+    try:
+        return genai.GenerativeModel(
+            os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+            tools="google_search"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to create grounded model, falling back to standard: {e}")
+        return genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
+
+
+def _call_gemini(prompt: str) -> dict:
+    model = _get_gemini_model()
+    for attempt in range(2):
+        try:
+            response = model.generate_content(prompt)
+            raw = response.text.strip()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            if attempt == 0:
+                logger.warning(f"Agent2 JSON parse failed (attempt 1), retrying.")
+                continue
+            logger.error(f"Agent2 invalid JSON after retry: {response.text[:500]}")
+            raise ValueError(f"Gemini returned invalid JSON: {str(e)}. Raw: {response.text[:300]}")
+        except Exception as e:
+            if attempt == 0:
+                logger.warning(f"Agent2 Gemini call failed (attempt 1): {e}")
+                continue
+            raise
+
+
+def _call_grounded_gemini(prompt: str) -> dict:
+    model = _get_grounded_gemini_model()
+    for attempt in range(2):
+        try:
+            response = model.generate_content(prompt)
+            raw = response.text.strip()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            return json.loads(raw)
+        except Exception as e:
+            if attempt == 0:
+                logger.warning(f"Agent2 grounded Gemini call failed (attempt 1): {e}")
+                continue
+            logger.error(f"Grounded search failed completely: {e}")
+            raise
 
 
 def safe_parse_confidence(val) -> float:
@@ -110,7 +169,7 @@ Rules:
     input_data = {"signals": signals, "location": location}
 
     try:
-        result = call_gemini_json(prompt, agent_label="Agent2")
+        result = _call_gemini(prompt)
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         await create_agent_log(db, {
@@ -148,9 +207,7 @@ Rules:
         If you find absolutely NO recent live results on Google Search, return an empty list: [].
         Return ONLY valid JSON without markdown formatting."""
         
-        if use_vertex_ai():
-            raise RuntimeError("Grounded search is not enabled for the Vertex REST path")
-        social_sources = call_gemini_json(search_prompt, agent_label="Agent2 social search")
+        social_sources = _call_grounded_gemini(search_prompt)
         if not isinstance(social_sources, list):
             social_sources = []
     except Exception as e:
@@ -162,25 +219,35 @@ Rules:
         logger.info("No live search matches found. Generating high-fidelity mock Karachi social feed.")
         social_sources = get_mock_social_posts(c_type, c_loc)
     raw_conf = safe_parse_confidence(result.get("confidence_score", 0.5))
+    # Determine verification statuses
     has_form = any(s.get("source_type") == "form" for s in signals)
-    has_verified_proof = any(s.get("verification_score") is not None and s.get("verification_score") > 0.6 for s in signals)
+    # Existing logic for verified proof and context match
+    has_verified_proof = any(
+        s.get("verification_score") is not None and s.get("verification_score") > 0.6
+        for s in signals
+    )
+    has_context_match_proof = any(
+        s.get("verification_score") is not None and s.get("verification_score") > 0.6 and s.get("is_context_match")
+        for s in signals
+    )
     is_ai = any(s.get("is_ai_generated") is True for s in signals)
-    has_context_mismatch = any(s.get("image_url") is not None and s.get("is_context_match") is False for s in signals)
+    # New: detect low authenticity (image unrelated)
+    low_authenticity = any(
+        s.get("verification_score") is not None and s.get("verification_score") < 0.2
+        for s in signals
+    )
     
-    if has_context_mismatch:
-        scaled_conf = 0.05  # Heavily penalize fake/unrelated proof uploads (selfies)
-        social_sources = [] # Do not confirm fake/unverified reports on socials!
-    elif is_ai:
-        scaled_conf = 0.10 # Heavily demote simulated/AI photos
-        social_sources = [] # Do not confirm fake/unverified reports on socials!
+    if is_ai or low_authenticity:
+        scaled_conf = 0.10  # Heavily demote AI‑generated or low authenticity photos
+    elif has_context_match_proof:
+        scaled_conf = min(0.98, raw_conf + 0.15)  # Strong boost for genuine, context‑matched proof
     elif has_verified_proof:
-        scaled_conf = min(0.98, raw_conf + 0.15) # Boost for verified image proof
+        scaled_conf = min(0.90, raw_conf + 0.08)  # Moderate boost when proof exists but lacks context match
     elif len(signals) > 1:
-        scaled_conf = min(0.95, raw_conf + 0.05) # Boost for multi-source
+        scaled_conf = min(0.95, raw_conf + 0.05)  # Small boost for multiple sources
     else:
-        scaled_conf = max(0.30, raw_conf - 0.10) # Lower for single-source report without proof
-        if scaled_conf < 0.40:
-            social_sources = []
+        scaled_conf = max(0.30, raw_conf - 0.10)  # Lower for single source without proof
+
 
     crisis = await create_crisis(db, {
         "crisis_type": c_type,
