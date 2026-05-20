@@ -1,40 +1,10 @@
-import os
-import json
 import time
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.crud import create_agent_log
+from llm_config import call_gemini_json
 
 logger = logging.getLogger(__name__)
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
-
-
-def _get_gemini_model():
-    import google.generativeai as genai
-    genai.configure(api_key=GEMINI_API_KEY)
-    return genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
-
-
-def _call_gemini(prompt: str) -> dict:
-    model = _get_gemini_model()
-    for attempt in range(2):
-        try:
-            response = model.generate_content(prompt)
-            raw = response.text.strip()
-            raw = raw.replace("```json", "").replace("```", "").strip()
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
-            if attempt == 0:
-                logger.warning(f"Agent1 JSON parse failed (attempt 1), retrying. Raw: {response.text[:200]}")
-                continue
-            logger.error(f"Agent1 Gemini returned invalid JSON after retry: {response.text[:500]}")
-            raise ValueError(f"Gemini returned invalid JSON: {str(e)}. Raw: {response.text[:300]}")
-        except Exception as e:
-            if attempt == 0:
-                logger.warning(f"Agent1 Gemini call failed (attempt 1): {e}")
-                continue
-            raise
 
 
 async def run_ingestion_agent(
@@ -73,7 +43,7 @@ Rules:
     input_data = {"text": text, "source_type": source_type, "location": location}
 
     try:
-        result = _call_gemini(prompt)
+        result = call_gemini_json(prompt, agent_label="Agent1")
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         err_str = str(e)

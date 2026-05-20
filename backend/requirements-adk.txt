@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Optional local dependency for CRISISIQ_ADK_MODE=llm and `adk web`.
+google-adk>=1.2.0,<2.0.0
+deprecated>=1.2.0

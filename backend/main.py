@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 def run_migrations():
+    if not os.environ.get("NEON_DATABASE_URL"):
+        logger.warning("Skipping migrations because NEON_DATABASE_URL is not set")
+        return
+
     logger.info("Running Alembic migrations...")
     try:
         result = subprocess.run(
@@ -36,7 +40,11 @@ def run_migrations():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    run_migrations()
+    if os.environ.get("VERCEL"):
+        logger.info("Skipping startup migrations on Vercel serverless runtime")
+    else:
+        run_migrations()
+
     logger.info("CrisisIQ API server started")
     yield
     logger.info("CrisisIQ API server shutting down")
@@ -51,21 +59,17 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://crises-iq-fe-yyy9.vercel.app",
-        "http://localhost:8081",
-        "http://localhost:8000",
-        "http://localhost:19006",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 from fastapi.staticfiles import StaticFiles
+from uploads_config import UPLOAD_DIR
 
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 from routers.signals import router as signals_router
 from routers.crises import router as crises_router
