@@ -98,7 +98,12 @@ async def ingest_signal_with_image(
             reported_location=location
         )
         
-        verification_score = forensic_res.get("authenticity_score", 0.70)
+        is_context_match = forensic_res.get("is_context_match", True)
+        if not is_context_match:
+            verification_score = 0.0
+        else:
+            verification_score = forensic_res.get("authenticity_score", 0.70)
+            
         is_ai_generated = forensic_res.get("is_likely_ai_generated", False)
         forensic_log = forensic_res
 
@@ -136,7 +141,8 @@ async def ingest_signal_with_image(
         "longitude": signal.longitude,
         "image_url": signal.image_url,
         "verification_score": signal.verification_score,
-        "is_ai_generated": signal.is_ai_generated
+        "is_ai_generated": signal.is_ai_generated,
+        "is_context_match": forensic_log.get("is_context_match", True) if forensic_log else True
     }
 
     # 5. Automatically trigger downstream multi-agent pipeline

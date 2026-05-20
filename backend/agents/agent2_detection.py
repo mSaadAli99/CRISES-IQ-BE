@@ -222,15 +222,22 @@ Rules:
     has_form = any(s.get("source_type") == "form" for s in signals)
     has_verified_proof = any(s.get("verification_score") is not None and s.get("verification_score") > 0.6 for s in signals)
     is_ai = any(s.get("is_ai_generated") is True for s in signals)
+    has_context_mismatch = any(s.get("image_url") is not None and s.get("is_context_match") is False for s in signals)
     
-    if is_ai:
+    if has_context_mismatch:
+        scaled_conf = 0.05  # Heavily penalize fake/unrelated proof uploads (selfies)
+        social_sources = [] # Do not confirm fake/unverified reports on socials!
+    elif is_ai:
         scaled_conf = 0.10 # Heavily demote simulated/AI photos
+        social_sources = [] # Do not confirm fake/unverified reports on socials!
     elif has_verified_proof:
         scaled_conf = min(0.98, raw_conf + 0.15) # Boost for verified image proof
     elif len(signals) > 1:
         scaled_conf = min(0.95, raw_conf + 0.05) # Boost for multi-source
     else:
         scaled_conf = max(0.30, raw_conf - 0.10) # Lower for single-source report without proof
+        if scaled_conf < 0.40:
+            social_sources = []
 
     crisis = await create_crisis(db, {
         "crisis_type": c_type,

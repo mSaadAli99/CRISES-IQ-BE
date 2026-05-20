@@ -58,17 +58,20 @@ async def run_forensic_agent(
     - Reported location context: {reported_location} (Karachi, Pakistan)
     
     Verify the following two aspects carefully:
-    1. **Context Compatibility:** Does the image accurately portray the reported incident (e.g. flooded roads, car crash, traffic block, power outages)?
+    1. **Context Compatibility:** Does the image accurately portray the reported incident (e.g. flooded roads, car crash, traffic block, power outages, fire, accident)?
+       CRITICAL RULES:
+       - If the image is a selfie of a person, a portrait of a person, a face, or completely unrelated to a crisis/emergency, you MUST set "is_context_match" to false and "authenticity_score" to 0.0.
+       - Do not be fooled by user claims. Look closely at the image content. If it doesn't show the physical incident, it is a mismatch.
     2. **AI Synthesis Detection:** Check if the image displays structural inconsistencies typical of generative AI (e.g. melted text, unnatural shadow angles, physically impossible line/geometry blending, distorted anatomy, or typical airbrushed texture signatures).
     
     Return ONLY a valid JSON object matching this structure (no markdown, no backticks, no extra wrapper):
     {{
-      "is_context_match": true,
-      "context_match_reasoning": "Provide brief observational proof reasoning",
+      "is_context_match": false,
+      "context_match_reasoning": "Reasoning about why the image does not match the reported incident (e.g., 'The image is a selfie of a person and does not depict a vehicle collision')",
       "ai_generation_probability": 0.05,
       "is_likely_ai_generated": false,
-      "forensic_markers_found": ["natural shadows", "clear structural lines"],
-      "authenticity_score": 0.95
+      "forensic_markers_found": ["selfie_detected", "no_matching_crisis_context"],
+      "authenticity_score": 0.0
     }}
     """
 
