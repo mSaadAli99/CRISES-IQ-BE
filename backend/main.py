@@ -59,7 +59,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://crises-iq-fe-yyy9.vercel.app",
+        "http://localhost:8081",
+        "http://localhost:8000",
+        "http://localhost:19006",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
