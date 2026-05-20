@@ -1,15 +1,12 @@
 import os
 from dotenv import load_dotenv
-from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+from urllib.parse import urlparse, urlunparse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 load_dotenv()
 
 _raw_url = os.environ.get("NEON_DATABASE_URL", "")
-
-if not _raw_url:
-    raise RuntimeError("NEON_DATABASE_URL environment variable is not set")
 
 
 def _to_async_db_url(url: str) -> str:
@@ -49,24 +46,27 @@ def _to_sync_url(url: str) -> str:
     return url
 
 
-DATABASE_URL = _to_async_db_url(_raw_url)
-SYNC_DATABASE_URL = _to_sync_url(_raw_url)
+DATABASE_URL = _to_async_db_url(_raw_url) if _raw_url else ""
+SYNC_DATABASE_URL = _to_sync_url(_raw_url) if _raw_url else ""
 
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-)
+engine = None
+AsyncSessionLocal = None
 
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False,
-)
+if DATABASE_URL:
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+    )
+    AsyncSessionLocal = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
 
 
 class Base(DeclarativeBase):
@@ -74,6 +74,9 @@ class Base(DeclarativeBase):
 
 
 async def get_db():
+    if AsyncSessionLocal is None:
+        raise RuntimeError("NEON_DATABASE_URL environment variable is not set")
+
     async with AsyncSessionLocal() as session:
         try:
             yield session

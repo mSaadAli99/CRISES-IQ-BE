@@ -27,9 +27,9 @@ from agents.agent3_analysis import run_analysis_agent
 from agents.agent4_planner import run_planner_agent
 from db.crud import get_agent_logs_by_crisis
 from routers.crises import manager, _serialize_log
+from uploads_config import UPLOAD_DIR, UPLOAD_URL_PREFIX
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/ingest")
 async def ingest_signal(body: IngestRequest, db: AsyncSession = Depends(get_db)):
@@ -88,7 +88,7 @@ async def ingest_signal_with_image(
             shutil.copyfileobj(image.file, buffer)
         
         # Public URL path
-        image_url = f"/uploads/{file_name}"
+        image_url = f"{UPLOAD_URL_PREFIX}/{file_name}"
         
         # 2. Run Multimodal Forensic Agent
         forensic_res = await run_forensic_agent(
